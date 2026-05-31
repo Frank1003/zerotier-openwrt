@@ -3,35 +3,80 @@ name: Multi-arch test build
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      arch_profile:
+        description: OpenWrt architecture profile
+        required: false
+        default: "common"
+      openwrt_release:
+        description: OpenWrt release suffix used by SDK (example: 24.10.6)
+        required: false
+        default: "24.10.6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zerotier-test-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: ${{ matrix.arch }} build
+  prepare:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        arch:
-          - aarch64_cortex-a72-24.10.6
-          - aarch64_cortex-a53-24.10.6
-          - arm_cortex-a7_neon-vfpv4-24.10.6
-
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      hash: ${{ steps.meta.outputs.hash }}
+      matrix: ${{ steps.arches.outputs.matrix }}
+      openwrt_release: ${{ steps.owrt.outputs.openwrt_release }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Resolve latest upstream version and hash
+        id: meta
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ZT_NO_WRITE: "1"
+        run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile
+
+      - name: Pick OpenWrt release
+        id: owrt
+        run: echo "openwrt_release=${{ github.event.inputs.openwrt_release || '24.10.6' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Pick architecture matrix
+        id: arches
+        env:
+          ARCH_PROFILE: ${{ github.event.inputs.arch_profile || 'common' }}
+        run: node scripts/openwrt-arch-matrix.mjs
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch package version and hash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ZT_VERSION: ${{ needs.prepare.outputs.version }}
+          ZT_HASH: ${{ needs.prepare.outputs.hash }}
         run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile
 
       - name: Build package
         uses: openwrt/gh-action-sdk@main
         continue-on-error: true
         env:
-          ARCH: ${{ matrix.arch }}
+          ARCH: ${{ matrix.arch }}-${{ needs.prepare.outputs.openwrt_release }}
           PACKAGES: zerotier
           BUILD_LOG: 1
 

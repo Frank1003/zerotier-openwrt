@@ -8,6 +8,10 @@ on:
     - cron: "15 3 * * *"
   workflow_dispatch:
     inputs:
+      arch_profile:
+        description: OpenWrt architecture profile
+        required: false
+        default: "full"
       openwrt_release:
         description: "OpenWrt release suffix used by SDK (example: 24.10.6)"
         required: false
@@ -33,6 +37,7 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       hash: ${{ steps.meta.outputs.hash }}
+      matrix: ${{ steps.arches.outputs.matrix }}
       should_release: ${{ steps.check.outputs.should_release }}
       openwrt_release: ${{ steps.owrt.outputs.openwrt_release }}
     steps:
@@ -49,6 +54,12 @@ jobs:
       - name: Pick OpenWrt release
         id: owrt
         run: echo "openwrt_release=${{ github.event.inputs.openwrt_release || '24.10.6' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Pick architecture matrix
+        id: arches
+        env:
+          ARCH_PROFILE: ${{ github.event.inputs.arch_profile || 'full' }}
+        run: node scripts/openwrt-arch-matrix.mjs
 
       - name: Check if this version is already released
         id: check
@@ -89,12 +100,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 1
-      matrix:
-        arch:
-          - aarch64_cortex-a72
-          - aarch64_cortex-a53
-          - arm_cortex-a7_neon-vfpv4
-          - arm_arm1176jzf-s_vfp
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
 
     steps:
       - name: Checkout
