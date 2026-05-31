@@ -37,6 +37,18 @@ async function fetchJson(url) {
   return res.json();
 }
 
+async function fetchText(url) {
+  const res = await fetch(url, {
+    headers: buildHeaders({
+      Accept: "text/plain",
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+  }
+  return res.text();
+}
+
 async function fetchBuffer(url) {
   const res = await fetch(url, {
     headers: buildHeaders(),
@@ -47,7 +59,26 @@ async function fetchBuffer(url) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-let version = overrideVersion;
+function normalizeSemver(version) {
+  const cleaned = String(version).trim().replace(/^v/i, "");
+  const match = cleaned.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    throw new Error(`Invalid semantic version: ${version}`);
+  }
+  return `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}`;
+}
+
+function parseVersionFromHeader(versionHeaderText) {
+  const major = versionHeaderText.match(/#define\s+ZEROTIER_ONE_VERSION_MAJOR\s+(\d+)/);
+  const minor = versionHeaderText.match(/#define\s+ZEROTIER_ONE_VERSION_MINOR\s+(\d+)/);
+  const revision = versionHeaderText.match(/#define\s+ZEROTIER_ONE_VERSION_REVISION\s+(\d+)/);
+  if (!major || !minor || !revision) {
+    throw new Error("Unable to parse ZeroTier version macros from version.h");
+  }
+  return `${Number(major[1])}.${Number(minor[1])}.${Number(revision[1])}`;
+}
+
+let version = overrideVersion ? normalizeSemver(overrideVersion) : "";
 let hash = overrideHash;
 
 if (!version || !hash) {
@@ -56,10 +87,20 @@ if (!version || !hash) {
   if (!tagName) {
     throw new Error("Unable to resolve upstream tag name from GitHub release");
   }
-  version = tagName.startsWith("v") ? tagName.slice(1) : tagName;
+  version = normalizeSemver(tagName);
   const sourceUrl = `https://codeload.github.com/zerotier/ZeroTierOne/tar.gz/${version}?`;
   const tar = await fetchBuffer(sourceUrl);
   hash = createHash("sha256").update(tar).digest("hex");
+
+  const headerUrl = `https://raw.githubusercontent.com/zerotier/ZeroTierOne/${version}/version.h`;
+  const headerText = await fetchText(headerUrl);
+  const declaredVersion = parseVersionFromHeader(headerText);
+  const resolvedVersion = normalizeSemver(version);
+  if (declaredVersion !== resolvedVersion) {
+    throw new Error(
+      `Version mismatch: release tag ${resolvedVersion}, but version.h declares ${declaredVersion}`,
+    );
+  }
 }
 
 const content = readFileSync(makefilePath, "utf8");
