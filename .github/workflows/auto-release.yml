@@ -1,0 +1,128 @@
+name: Auto release ZeroTier OpenWrt packages
+
+on:
+  schedule:
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+    inputs:
+      openwrt_release:
+        description: OpenWrt release suffix used by SDK (example: 24.10.6)
+        required: false
+        default: "24.10.6"
+      force_release:
+        description: Build and publish even if this version is already released
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: zerotier-auto-release
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      hash: ${{ steps.meta.outputs.hash }}
+      should_release: ${{ steps.check.outputs.should_release }}
+      openwrt_release: ${{ steps.owrt.outputs.openwrt_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve latest upstream version and hash
+        id: meta
+        run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile
+
+      - name: Pick OpenWrt release
+        id: owrt
+        run: echo "openwrt_release=${{ github.event.inputs.openwrt_release || '24.10.6' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if this version is already released
+        id: check
+        uses: actions/github-script@v7
+        env:
+          UPSTREAM_VERSION: ${{ steps.meta.outputs.version }}
+          FORCE_RELEASE: ${{ github.event.inputs.force_release || 'false' }}
+        with:
+          script: |
+            const wanted = `zerotier-v${process.env.UPSTREAM_VERSION}`;
+            const forced = process.env.FORCE_RELEASE === "true";
+            let current = "";
+
+            try {
+              const release = await github.rest.repos.getLatestRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              current = release.data.tag_name || "";
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            core.setOutput("should_release", String(forced || current !== wanted));
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - aarch64_cortex-a72
+          - aarch64_cortex-a53
+          - arm_cortex-a7_neon-vfpv4
+          - arm_arm1176jzf-s_vfp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch package version and hash
+        env:
+          ZT_VERSION: ${{ needs.resolve.outputs.version }}
+          ZT_HASH: ${{ needs.resolve.outputs.hash }}
+        run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile
+
+      - name: Build package
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: ${{ matrix.arch }}-${{ needs.resolve.outputs.openwrt_release }}
+          PACKAGES: zerotier
+          BUILD_LOG: 1
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerotier-${{ matrix.arch }}
+          path: |
+            bin/packages/**/zerotier_*.apk
+            bin/packages/**/zerotier_*.ipk
+          if-no-files-found: error
+
+  publish:
+    needs: [resolve, build]
+    if: needs.resolve.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: zerotier-v${{ needs.resolve.outputs.version }}
+          name: ZeroTier ${{ needs.resolve.outputs.version }} for OpenWrt
+          files: |
+            dist/**/*.apk
+            dist/**/*.ipk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
