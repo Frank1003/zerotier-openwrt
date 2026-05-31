@@ -37,6 +37,7 @@ jobs:
       - name: Resolve latest upstream version and hash
         id: meta
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ZT_NO_WRITE: "1"
         run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile
 
@@ -93,6 +94,7 @@ jobs:
 
       - name: Patch package version and hash
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ZT_VERSION: ${{ needs.resolve.outputs.version }}
           ZT_HASH: ${{ needs.resolve.outputs.hash }}
         run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile

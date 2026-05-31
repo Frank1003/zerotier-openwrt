@@ -6,15 +6,32 @@ const makefilePath = process.argv[2] || "zerotier/Makefile";
 const overrideVersion = process.env.ZT_VERSION || "";
 const overrideHash = process.env.ZT_HASH || "";
 const noWrite = process.env.ZT_NO_WRITE === "1";
+const githubToken = process.env.GITHUB_TOKEN || "";
+
+function buildHeaders(extra = {}) {
+  const headers = {
+    "User-Agent": "zerotier-openwrt-bot",
+    ...extra,
+  };
+  if (githubToken) {
+    headers.Authorization = `Bearer ${githubToken}`;
+  }
+  return headers;
+}
 
 async function fetchJson(url) {
   const res = await fetch(url, {
-    headers: {
+    headers: buildHeaders({
       Accept: "application/vnd.github+json",
-      "User-Agent": "zerotier-openwrt-bot",
-    },
+    }),
   });
   if (!res.ok) {
+    if (res.status === 403) {
+      const remaining = res.headers.get("x-ratelimit-remaining");
+      if (remaining === "0" && !githubToken) {
+        throw new Error(`HTTP 403 GitHub API rate limit exceeded for ${url}; provide GITHUB_TOKEN`);
+      }
+    }
     throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
   }
   return res.json();
@@ -22,9 +39,7 @@ async function fetchJson(url) {
 
 async function fetchBuffer(url) {
   const res = await fetch(url, {
-    headers: {
-      "User-Agent": "zerotier-openwrt-bot",
-    },
+    headers: buildHeaders(),
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
