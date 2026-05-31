@@ -137,6 +137,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Verify release package files
+        shell: bash
+        run: |
+          count=$(find dist -type f \( -name '*.ipk' -o -name '*.apk' \) | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "No package files found under dist/"
+            exit 1
+          fi
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -146,4 +155,4 @@ jobs:
             dist/**/*.apk
             dist/**/*.ipk
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
