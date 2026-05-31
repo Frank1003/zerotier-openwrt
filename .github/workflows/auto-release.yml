@@ -16,7 +16,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: zerotier-auto-release
@@ -24,6 +24,8 @@ concurrency:
 
 jobs:
   resolve:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -78,6 +80,8 @@ jobs:
   build:
     needs: resolve
     if: needs.resolve.outputs.should_release == 'true'
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -118,6 +122,8 @@ jobs:
   publish:
     needs: [resolve, build]
     if: needs.resolve.outputs.should_release == 'true'
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     steps:
       - name: Download package artifacts
