@@ -13,7 +13,7 @@ on:
         required: false
         default: "common"
       openwrt_release:
-        description: OpenWrt release suffix used by SDK (example: 24.10.6)
+        description: "OpenWrt release suffix used by SDK (example: 24.10.6)"
         required: false
         default: "24.10.6"
 
