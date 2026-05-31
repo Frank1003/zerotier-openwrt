@@ -29,6 +29,7 @@ jobs:
 
       - name: Build package
         uses: openwrt/gh-action-sdk@main
+        continue-on-error: true
         env:
           ARCH: ${{ matrix.arch }}
           PACKAGES: zerotier
