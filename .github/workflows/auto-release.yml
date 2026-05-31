@@ -36,6 +36,8 @@ jobs:
 
       - name: Resolve latest upstream version and hash
         id: meta
+        env:
+          ZT_NO_WRITE: "1"
         run: node scripts/update-latest-zero-tier.mjs zerotier/Makefile
 
       - name: Pick OpenWrt release
@@ -52,19 +54,25 @@ jobs:
           script: |
             const wanted = `zerotier-v${process.env.UPSTREAM_VERSION}`;
             const forced = process.env.FORCE_RELEASE === "true";
-            let current = "";
-
-            try {
-              const release = await github.rest.repos.getLatestRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-              });
-              current = release.data.tag_name || "";
-            } catch (error) {
-              if (error.status !== 404) throw error;
+            if (forced) {
+              core.setOutput("should_release", "true");
+              return;
             }
 
-            core.setOutput("should_release", String(forced || current !== wanted));
+            try {
+              await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: wanted,
+              });
+              core.setOutput("should_release", "false");
+            } catch (error) {
+              if (error.status === 404) {
+                core.setOutput("should_release", "true");
+                return;
+              }
+              throw error;
+            }
 
   build:
     needs: resolve
